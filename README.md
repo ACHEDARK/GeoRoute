@@ -20,16 +20,13 @@ Aplicación web en Next.js que permite planificar rutas con Google Maps, agregan
 
 ## Configuración de la clave de Google Maps
 
-Actualmente la clave se inyecta en tiempo de ejecución al cargar el script de Google Maps. Para cambiarla:
+La clave se lee desde variables de entorno.
 
-1. Abre `app/page.tsx`.
-2. Busca la asignación del `script.src` que incluye `libraries=places`.
-3. Reemplaza el valor de `key=...` por tu propia API key.
+1. Crea un archivo `.env.local` en la raíz del proyecto.
+2. Agrega tu API key:
 
-Ejemplo del fragmento a modificar:
-```ts
-script.src =
-  "https://maps.googleapis.com/maps/api/js?key=TU_API_KEY&libraries=places"
+```env
+NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=TU_API_KEY
 ```
 
 Recomendado: restringe la clave por dominios (HTTP referrers) desde Google Cloud Console.
@@ -52,7 +49,7 @@ npm run start
 
 1. Ingresa el origen y destino en los campos (tienen autocompletado).
 2. Opcional: agrega paradas intermedias con el botón "Agregar Parada Intermedia".
-3. Puedes alternar el modo de viaje entre Auto y A pie.
+3. Alterna el modo de viaje entre Auto y A pie.
 4. También puedes seleccionar cualquier punto haciendo clic en el mapa (usa el botón de cursor junto a cada campo para indicar qué punto vas a seleccionar).
 5. Usa "Mi ubicación" para centrar el mapa en tu posición (requiere permisos del navegador).
 6. Presiona "Calcular Ruta Óptima" para trazar y optimizar la ruta.
