@@ -56,8 +56,10 @@ export default function RouteOptimizerApp() {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const autocompletesRef = useRef<Record<string, any>>({})
 
-  // Ref para marcador de "Mi ubicación"
+  // Ref para marcador de "Mi ubicación" y restricción de país/bounds
   const myLocationMarkerRef = useRef<any>(null)
+  const countryCodeRef = useRef<string | null>(null)
+  const biasBoundsRef = useRef<any>(null)
 
   useEffect(() => {
     const loadGoogleMaps = () => {
@@ -106,6 +108,18 @@ export default function RouteOptimizerApp() {
     loadGoogleMaps()
   }, [])
 
+  // Función para aplicar restricciones a todos los Autocomplete
+  const applyAutocompleteRestrictions = (opts: { countryCode?: string | null; bounds?: any }) => {
+    const { countryCode, bounds } = opts
+    Object.values(autocompletesRef.current).forEach((ac: any) => {
+      if (!ac) return
+      const options: any = {}
+      if (countryCode) options.componentRestrictions = { country: countryCode }
+      if (bounds) options.bounds = bounds
+      if (Object.keys(options).length > 0) ac.setOptions(options)
+    })
+  }
+
   // Configura Autocomplete para un input dado si aún no existe
   useEffect(() => {
     if (!window.google || !window.google.maps || !window.google.maps.places) return
@@ -113,9 +127,23 @@ export default function RouteOptimizerApp() {
     points.forEach((p) => {
       const inputEl = inputRefs.current[p.id]
       if (inputEl && !autocompletesRef.current[p.id]) {
-        const autocomplete = new window.google.maps.places.Autocomplete(inputEl, {
-          types: ["geocode"],
-        })
+        const baseOptions: any = {
+          // Mostrar resultados amplios (direcciones y establecimientos)
+          // language ayuda con términos locales
+          fields: ["geometry", "formatted_address", "name"],
+          language: "es",
+          strictBounds: false,
+        }
+
+        const autocomplete = new window.google.maps.places.Autocomplete(inputEl, baseOptions)
+
+        // Aplicar restricciones actuales si existen
+        if (countryCodeRef.current || biasBoundsRef.current) {
+          const currentOptions: any = { strictBounds: false }
+          if (countryCodeRef.current) currentOptions.componentRestrictions = { country: countryCodeRef.current }
+          if (biasBoundsRef.current) currentOptions.bounds = biasBoundsRef.current
+          autocomplete.setOptions(currentOptions)
+        }
 
         autocomplete.addListener("place_changed", () => {
           const place = autocomplete.getPlace()
@@ -356,6 +384,27 @@ export default function RouteOptimizerApp() {
               strokeWeight: 2,
             },
           })
+        }
+
+        // Definir bounds de sesgo más amplios (150 km) y detectar país
+        const circle = new window.google.maps.Circle({ center: coords, radius: 150000 })
+        biasBoundsRef.current = circle.getBounds()
+
+        if (geocoderRef.current) {
+          geocoderRef.current.geocode({ location: coords }, (results: any, status: string) => {
+            if (status === "OK" && results && results.length) {
+              const countryComp = results
+                .flatMap((r: any) => r.address_components)
+                .find((c: any) => c.types.includes("country"))
+              const countryCode = countryComp?.short_name?.toLowerCase()
+              countryCodeRef.current = countryCode || null
+              applyAutocompleteRestrictions({ countryCode: countryCodeRef.current, bounds: biasBoundsRef.current })
+            } else {
+              applyAutocompleteRestrictions({ countryCode: null, bounds: biasBoundsRef.current })
+            }
+          })
+        } else {
+          applyAutocompleteRestrictions({ countryCode: null, bounds: biasBoundsRef.current })
         }
       },
       (err) => {
