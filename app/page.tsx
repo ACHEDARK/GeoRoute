@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Navigation, Plus, X, Clock, Route, MousePointer } from "lucide-react"
+import { MapPin, Navigation, Plus, X, Clock, Route, MousePointer, Car, Footprints, LocateFixed } from "lucide-react"
 
 declare global {
   interface Window {
@@ -28,7 +28,7 @@ interface RouteInfo {
   traffic: "light" | "moderate" | "heavy"
 }
 
-type TravelMode = "DRIVING" | "WALKING" | "TRANSIT"
+type TravelMode = "DRIVING" | "WALKING"
 
 export default function RouteOptimizerApp() {
   const [points, setPoints] = useState<RoutePoint[]>([
@@ -232,16 +232,12 @@ export default function RouteOptimizerApp() {
     const origin = points.find((p) => p.type === "origin")
     const destination = points.find((p) => p.type === "destination")
 
-    // En WALKING/TRANSIT, Google no soporta waypoints. Solo DRIVING.
-    const includeWaypoints = travelMode === "DRIVING"
-    const waypoints = includeWaypoints
-      ? points
+    const waypoints = points
           .filter((p) => p.type === "waypoint" && (p.address.trim() !== "" || p.coordinates))
           .map((p) => ({
             location: p.coordinates || p.address,
             stopover: true,
           }))
-      : []
 
     if (
       !origin ||
@@ -414,15 +410,10 @@ export default function RouteOptimizerApp() {
                     variant={travelMode === "WALKING" ? "default" : "ghost"}
                     size="sm"
                     onClick={() => setTravelMode("WALKING")}
+                    className="gap-2"
+                    aria-pressed={travelMode === "WALKING"}
                   >
-                    A pie
-                  </Button>
-                  <Button
-                    variant={travelMode === "TRANSIT" ? "default" : "ghost"}
-                    size="sm"
-                    onClick={() => setTravelMode("TRANSIT")}
-                  >
-                    Bus
+                    <Footprints className="h-4 w-4" /> A pie
                   </Button>
                 </div>
               </div>
