@@ -233,11 +233,11 @@ export default function RouteOptimizerApp() {
     const destination = points.find((p) => p.type === "destination")
 
     const waypoints = points
-          .filter((p) => p.type === "waypoint" && (p.address.trim() !== "" || p.coordinates))
-          .map((p) => ({
-            location: p.coordinates || p.address,
-            stopover: true,
-          }))
+      .filter((p) => p.type === "waypoint" && (p.address.trim() !== "" || p.coordinates))
+      .map((p) => ({
+        location: p.coordinates || p.address,
+        stopover: true,
+      }))
 
     if (
       !origin ||
@@ -254,11 +254,8 @@ export default function RouteOptimizerApp() {
       origin: origin.coordinates || origin.address,
       destination: destination.coordinates || destination.address,
       travelMode: window.google.maps.TravelMode[travelMode],
-    }
-
-    if (includeWaypoints) {
-      request.waypoints = waypoints
-      request.optimizeWaypoints = true
+      waypoints,
+      optimizeWaypoints: true,
     }
 
     directionsServiceRef.current.route(request, (result: any, status: string) => {
@@ -395,16 +392,18 @@ export default function RouteOptimizerApp() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Selector de modo de viaje */}
+              {/* Selector de modo de viaje sin mensaje adicional */}
               <div className="flex items-center gap-2">
                 <span className="text-sm text-muted-foreground">Modo:</span>
-                <div className="inline-flex rounded-md border">
+                <div className="inline-flex rounded-md border bg-muted/50 p-1">
                   <Button
                     variant={travelMode === "DRIVING" ? "default" : "ghost"}
                     size="sm"
                     onClick={() => setTravelMode("DRIVING")}
+                    className="gap-2"
+                    aria-pressed={travelMode === "DRIVING"}
                   >
-                    Auto
+                    <Car className="h-4 w-4" /> Auto
                   </Button>
                   <Button
                     variant={travelMode === "WALKING" ? "default" : "ghost"}
@@ -416,6 +415,10 @@ export default function RouteOptimizerApp() {
                     <Footprints className="h-4 w-4" /> A pie
                   </Button>
                 </div>
+                <div className="flex-1" />
+                <Button variant="outline" size="sm" onClick={handleMyLocation} title="Centrar en mi ubicación" className="gap-2">
+                  <LocateFixed className="h-4 w-4" /> Mi ubicación
+                </Button>
               </div>
 
               {points.map((point, index) => (
@@ -476,7 +479,7 @@ export default function RouteOptimizerApp() {
                 </div>
               )}
 
-              <Button variant="outline" onClick={addWaypoint} className="w-full bg-transparent" disabled={travelMode !== "DRIVING"}>
+              <Button variant="outline" onClick={addWaypoint} className="w-full bg-transparent">
                 <Plus className="h-4 w-4 mr-2" />
                 Agregar Parada Intermedia
               </Button>
@@ -514,8 +517,8 @@ export default function RouteOptimizerApp() {
                         : "Usa los botones de cursor para seleccionar puntos en el mapa"}
                     </CardDescription>
                   </div>
-                  <Button variant="outline" size="sm" onClick={handleMyLocation} title="Centrar en mi ubicación">
-                    Mi ubicación
+                  <Button variant="outline" size="sm" onClick={handleMyLocation} title="Centrar en mi ubicación" className="gap-2">
+                    <LocateFixed className="h-4 w-4" /> Mi ubicación
                   </Button>
                 </div>
               </CardHeader>
