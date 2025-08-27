@@ -66,9 +66,15 @@ export default function RouteOptimizerApp() {
         return
       }
 
+      const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+      if (!apiKey) {
+        console.error("Falta NEXT_PUBLIC_GOOGLE_MAPS_API_KEY en el entorno")
+        alert("Falta configurar la API key de Google Maps. Revisa el README para usar .env.local")
+        return
+      }
+
       const script = document.createElement("script")
-      script.src =
-        "https://maps.googleapis.com/maps/api/js?key=AIzaSyB6Et3gdCErgDhdXUnds6xVo4KNoU2CKRY&libraries=places"
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=places`
       script.async = true
       script.defer = true
       script.onload = initializeMap
