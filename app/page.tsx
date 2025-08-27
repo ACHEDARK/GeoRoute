@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
-import { MapPin, Navigation, Plus, X, Clock, Route, MousePointer } from "lucide-react"
+import { MapPin, Navigation, Plus, X, Clock, Route, MousePointer, Car, Footprints, LocateFixed } from "lucide-react"
 
 declare global {
   interface Window {
@@ -28,6 +28,8 @@ interface RouteInfo {
   traffic: "light" | "moderate" | "heavy"
 }
 
+type TravelMode = "DRIVING" | "WALKING"
+
 export default function RouteOptimizerApp() {
   const [points, setPoints] = useState<RoutePoint[]>([
     { id: "1", address: "", type: "origin" },
@@ -37,11 +39,25 @@ export default function RouteOptimizerApp() {
   const [isCalculating, setIsCalculating] = useState(false)
   const [isSelectingPoint, setIsSelectingPoint] = useState<string | null>(null)
   const [markers, setMarkers] = useState<any[]>([])
+  const [travelMode, setTravelMode] = useState<TravelMode>("DRIVING")
   const mapRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<any>(null)
   const directionsServiceRef = useRef<any>(null)
   const directionsRendererRef = useRef<any>(null)
   const geocoderRef = useRef<any>(null)
+
+  // Ref para estado de selección accesible en listeners
+  const isSelectingPointRef = useRef<string | null>(null)
+  useEffect(() => {
+    isSelectingPointRef.current = isSelectingPoint
+  }, [isSelectingPoint])
+
+  // Refs para Autocomplete y inputs
+  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
+  const autocompletesRef = useRef<Record<string, any>>({})
+
+  // Ref para marcador de "Mi ubicación"
+  const myLocationMarkerRef = useRef<any>(null)
 
   useEffect(() => {
     const loadGoogleMaps = () => {
@@ -74,7 +90,7 @@ export default function RouteOptimizerApp() {
         geocoderRef.current = new window.google.maps.Geocoder()
 
         mapInstanceRef.current.addListener("click", (event: any) => {
-          if (isSelectingPoint) {
+          if (isSelectingPointRef.current) {
             handleMapClick(event.latLng)
           }
         })
@@ -82,10 +98,50 @@ export default function RouteOptimizerApp() {
     }
 
     loadGoogleMaps()
-  }, [isSelectingPoint])
+  }, [])
+
+  // Configura Autocomplete para un input dado si aún no existe
+  useEffect(() => {
+    if (!window.google || !window.google.maps || !window.google.maps.places) return
+
+    points.forEach((p) => {
+      const inputEl = inputRefs.current[p.id]
+      if (inputEl && !autocompletesRef.current[p.id]) {
+        const autocomplete = new window.google.maps.places.Autocomplete(inputEl, {
+          types: ["geocode"],
+        })
+
+        autocomplete.addListener("place_changed", () => {
+          const place = autocomplete.getPlace()
+          if (!place || !place.geometry) {
+            const fallbackAddress = inputEl.value
+            setPoints((prev) => prev.map((pt) => (pt.id === p.id ? { ...pt, address: fallbackAddress } : pt)))
+            return
+          }
+
+          const lat = place.geometry.location.lat()
+          const lng = place.geometry.location.lng()
+          const address = place.formatted_address || place.name || inputEl.value
+
+          setPoints((prev) =>
+            prev.map((pt) => (pt.id === p.id ? { ...pt, address, coordinates: { lat, lng } } : pt))
+          )
+
+          addMarker({ lat, lng }, p.id, address)
+
+          if (mapInstanceRef.current) {
+            mapInstanceRef.current.panTo({ lat, lng })
+            mapInstanceRef.current.setZoom(14)
+          }
+        })
+
+        autocompletesRef.current[p.id] = autocomplete
+      }
+    })
+  }, [points])
 
   const handleMapClick = (latLng: any) => {
-    if (!isSelectingPoint || !geocoderRef.current) return
+    if (!isSelectingPointRef.current || !geocoderRef.current) return
 
     const coordinates = { lat: latLng.lat(), lng: latLng.lng() }
 
@@ -93,9 +149,13 @@ export default function RouteOptimizerApp() {
       if (status === "OK" && results[0]) {
         const address = results[0].formatted_address
 
-        setPoints(points.map((point) => (point.id === isSelectingPoint ? { ...point, address, coordinates } : point)))
+        setPoints((prev) =>
+          prev.map((point) => (point.id === isSelectingPointRef.current ? { ...point, address, coordinates } : point))
+        )
 
-        addMarker(coordinates, isSelectingPoint, address)
+        if (isSelectingPointRef.current) {
+          addMarker(coordinates, isSelectingPointRef.current, address)
+        }
 
         setIsSelectingPoint(null)
       }
@@ -171,6 +231,7 @@ export default function RouteOptimizerApp() {
 
     const origin = points.find((p) => p.type === "origin")
     const destination = points.find((p) => p.type === "destination")
+
     const waypoints = points
       .filter((p) => p.type === "waypoint" && (p.address.trim() !== "" || p.coordinates))
       .map((p) => ({
@@ -189,11 +250,11 @@ export default function RouteOptimizerApp() {
       return
     }
 
-    const request = {
+    const request: any = {
       origin: origin.coordinates || origin.address,
       destination: destination.coordinates || destination.address,
-      waypoints: waypoints,
-      travelMode: window.google.maps.TravelMode.DRIVING,
+      travelMode: window.google.maps.TravelMode[travelMode],
+      waypoints,
       optimizeWaypoints: true,
     }
 
@@ -255,6 +316,57 @@ export default function RouteOptimizerApp() {
     }
   }
 
+  const handleMyLocation = () => {
+    if (!navigator.geolocation) {
+      alert("La geolocalización no es soportada por este navegador.")
+      return
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const { latitude, longitude } = pos.coords
+        const coords = { lat: latitude, lng: longitude }
+
+        if (mapInstanceRef.current) {
+          mapInstanceRef.current.setCenter(coords)
+          mapInstanceRef.current.setZoom(15)
+        }
+
+        if (!window.google || !mapInstanceRef.current) return
+
+        if (myLocationMarkerRef.current) {
+          myLocationMarkerRef.current.setPosition(coords)
+        } else {
+          myLocationMarkerRef.current = new window.google.maps.Marker({
+            position: coords,
+            map: mapInstanceRef.current,
+            title: "Mi ubicación",
+            icon: {
+              path: window.google.maps.SymbolPath.CIRCLE,
+              scale: 8,
+              fillColor: "#1E88E5",
+              fillOpacity: 1,
+              strokeColor: "#FFFFFF",
+              strokeWeight: 2,
+            },
+          })
+        }
+      },
+      (err) => {
+        if (err.code === 1) {
+          alert("Permiso de ubicación denegado. Activa los permisos para usar esta función.")
+        } else if (err.code === 2) {
+          alert("Ubicación no disponible. Intenta de nuevo más tarde.")
+        } else if (err.code === 3) {
+          alert("Tiempo de espera agotado al obtener la ubicación.")
+        } else {
+          alert("No se pudo obtener tu ubicación.")
+        }
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    )
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <div className="container mx-auto px-4 py-8 max-w-6xl">
@@ -280,6 +392,31 @@ export default function RouteOptimizerApp() {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
+              {/* Selector de modo de viaje sin mensaje adicional */}
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Modo:</span>
+                <div className="inline-flex rounded-md border bg-muted/50 p-1">
+                  <Button
+                    variant={travelMode === "DRIVING" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setTravelMode("DRIVING")}
+                    className="gap-2"
+                    aria-pressed={travelMode === "DRIVING"}
+                  >
+                    <Car className="h-4 w-4" /> Auto
+                  </Button>
+                  <Button
+                    variant={travelMode === "WALKING" ? "default" : "ghost"}
+                    size="sm"
+                    onClick={() => setTravelMode("WALKING")}
+                    className="gap-2"
+                    aria-pressed={travelMode === "WALKING"}
+                  >
+                    <Footprints className="h-4 w-4" /> A pie
+                  </Button>
+                </div>
+              </div>
+
               {points.map((point, index) => (
                 <div key={point.id} className="flex items-center gap-3">
                   <div className="flex items-center gap-2 min-w-0 flex-1">
@@ -295,6 +432,7 @@ export default function RouteOptimizerApp() {
                           value={point.address}
                           onChange={(e) => updatePoint(point.id, e.target.value)}
                           className="flex-1"
+                          ref={(el) => { inputRefs.current[point.id] = el }}
                         />
                         <Button
                           variant="outline"
@@ -366,12 +504,19 @@ export default function RouteOptimizerApp() {
           <div className="space-y-6">
             <Card>
               <CardHeader>
-                <CardTitle>Mapa de Ruta</CardTitle>
-                <CardDescription>
-                  {isSelectingPoint
-                    ? "Haz clic en el mapa para seleccionar la ubicación"
-                    : "Usa los botones de cursor para seleccionar puntos en el mapa"}
-                </CardDescription>
+                <div className="flex items-center justify-between">
+                  <div>
+                    <CardTitle>Mapa de Ruta</CardTitle>
+                    <CardDescription>
+                      {isSelectingPoint
+                        ? "Haz clic en el mapa para seleccionar la ubicación"
+                        : "Usa los botones de cursor para seleccionar puntos en el mapa"}
+                    </CardDescription>
+                  </div>
+                  <Button variant="outline" size="sm" onClick={handleMyLocation} title="Centrar en mi ubicación" className="gap-2">
+                    <LocateFixed className="h-4 w-4" /> Mi ubicación
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent>
                 <div
