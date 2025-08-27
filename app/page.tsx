@@ -56,8 +56,10 @@ export default function RouteOptimizerApp() {
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({})
   const autocompletesRef = useRef<Record<string, any>>({})
 
-  // Ref para marcador de "Mi ubicación"
+  // Ref para marcador de "Mi ubicación" y restricción de país/bounds
   const myLocationMarkerRef = useRef<any>(null)
+  const countryCodeRef = useRef<string | null>(null)
+  const biasBoundsRef = useRef<any>(null)
 
   useEffect(() => {
     const loadGoogleMaps = () => {
@@ -106,6 +108,18 @@ export default function RouteOptimizerApp() {
     loadGoogleMaps()
   }, [])
 
+  // Función para aplicar restricciones a todos los Autocomplete
+  const applyAutocompleteRestrictions = (opts: { countryCode?: string | null; bounds?: any }) => {
+    const { countryCode, bounds } = opts
+    Object.values(autocompletesRef.current).forEach((ac: any) => {
+      if (!ac) return
+      const options: any = {}
+      if (countryCode) options.componentRestrictions = { country: countryCode }
+      if (bounds) options.bounds = bounds
+      if (Object.keys(options).length > 0) ac.setOptions(options)
+    })
+  }
+
   // Configura Autocomplete para un input dado si aún no existe
   useEffect(() => {
     if (!window.google || !window.google.maps || !window.google.maps.places) return
@@ -113,9 +127,23 @@ export default function RouteOptimizerApp() {
     points.forEach((p) => {
       const inputEl = inputRefs.current[p.id]
       if (inputEl && !autocompletesRef.current[p.id]) {
-        const autocomplete = new window.google.maps.places.Autocomplete(inputEl, {
-          types: ["geocode"],
-        })
+        const baseOptions: any = {
+          // Mostrar resultados amplios (direcciones y establecimientos)
+          // language ayuda con términos locales
+          fields: ["geometry", "formatted_address", "name"],
+          language: "es",
+          strictBounds: false,
+        }
+
+        const autocomplete = new window.google.maps.places.Autocomplete(inputEl, baseOptions)
+
+        // Aplicar restricciones actuales si existen
+        if (countryCodeRef.current || biasBoundsRef.current) {
+          const currentOptions: any = { strictBounds: false }
+          if (countryCodeRef.current) currentOptions.componentRestrictions = { country: countryCodeRef.current }
+          if (biasBoundsRef.current) currentOptions.bounds = biasBoundsRef.current
+          autocomplete.setOptions(currentOptions)
+        }
 
         autocomplete.addListener("place_changed", () => {
           const place = autocomplete.getPlace()
@@ -287,6 +315,99 @@ export default function RouteOptimizerApp() {
     })
   }
 
+  const calculateFastestRoute = async () => {
+    if (!directionsServiceRef.current || !directionsRendererRef.current) {
+      alert("Google Maps no está cargado correctamente")
+      return
+    }
+
+    setIsCalculating(true)
+
+    const origin = points.find((p) => p.type === "origin")
+    const destination = points.find((p) => p.type === "destination")
+
+    const waypoints = points
+      .filter((p) => p.type === "waypoint" && (p.address.trim() !== "" || p.coordinates))
+      .map((p) => ({
+        location: p.coordinates || p.address,
+        stopover: true,
+      }))
+
+    if (
+      !origin ||
+      !destination ||
+      (!origin.address && !origin.coordinates) ||
+      (!destination.address && !destination.coordinates)
+    ) {
+      alert("Por favor selecciona el origen y destino")
+      setIsCalculating(false)
+      return
+    }
+
+    const request: any = {
+      origin: origin.coordinates || origin.address,
+      destination: destination.coordinates || destination.address,
+      travelMode: window.google.maps.TravelMode[travelMode],
+      waypoints,
+      optimizeWaypoints: true,
+      provideRouteAlternatives: true,
+    }
+
+    // Para Auto, usar tráfico en tiempo real
+    if (travelMode === "DRIVING") {
+      request.drivingOptions = {
+        departureTime: new Date(),
+        trafficModel: window.google.maps.TrafficModel?.BEST_GUESS || "bestguess",
+      }
+    }
+
+    directionsServiceRef.current.route(request, (result: any, status: string) => {
+      setIsCalculating(false)
+
+      if (status === "OK") {
+        // Aviso si no hay alternativas
+        if (!result.routes || result.routes.length <= 1) {
+          alert("Solo hay una ruta disponible para este trayecto.")
+        }
+        // Seleccionar la ruta con menor duración (considerando tráfico si aplica)
+        let bestIndex = 0
+        let bestMinutes = Infinity
+        result.routes.forEach((r: any, idx: number) => {
+          const minutes = r.legs.reduce((total: number, leg: any) => {
+            const v = travelMode === "DRIVING" && leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value
+            return total + v
+          }, 0) / 60
+          if (minutes < bestMinutes) {
+            bestMinutes = minutes
+            bestIndex = idx
+          }
+        })
+
+        directionsRendererRef.current.setDirections(result)
+        if (typeof directionsRendererRef.current.setRouteIndex === "function") {
+          directionsRendererRef.current.setRouteIndex(bestIndex)
+        }
+
+        markers.forEach((m) => m.marker.setMap(null))
+        setMarkers([])
+
+        const route = result.routes[bestIndex]
+        setRouteInfo({
+          distance: route.legs.reduce((total: number, leg: any) => total + leg.distance.value, 0) / 1000 + " km",
+          duration: Math.ceil(
+            route.legs.reduce((total: number, leg: any) => {
+              const v = travelMode === "DRIVING" && leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value
+              return total + v
+            }, 0) / 60
+          ) + " min",
+          traffic: "moderate",
+        })
+      } else {
+        alert("No se pudo obtener la ruta: " + status)
+      }
+    })
+  }
+
   const getPointIcon = (type: string) => {
     switch (type) {
       case "origin":
@@ -356,6 +477,27 @@ export default function RouteOptimizerApp() {
               strokeWeight: 2,
             },
           })
+        }
+
+        // Definir bounds de sesgo más amplios (150 km) y detectar país
+        const circle = new window.google.maps.Circle({ center: coords, radius: 150000 })
+        biasBoundsRef.current = circle.getBounds()
+
+        if (geocoderRef.current) {
+          geocoderRef.current.geocode({ location: coords }, (results: any, status: string) => {
+            if (status === "OK" && results && results.length) {
+              const countryComp = results
+                .flatMap((r: any) => r.address_components)
+                .find((c: any) => c.types.includes("country"))
+              const countryCode = countryComp?.short_name?.toLowerCase()
+              countryCodeRef.current = countryCode || null
+              applyAutocompleteRestrictions({ countryCode: countryCodeRef.current, bounds: biasBoundsRef.current })
+            } else {
+              applyAutocompleteRestrictions({ countryCode: null, bounds: biasBoundsRef.current })
+            }
+          })
+        } else {
+          applyAutocompleteRestrictions({ countryCode: null, bounds: biasBoundsRef.current })
         }
       },
       (err) => {
@@ -501,6 +643,23 @@ export default function RouteOptimizerApp() {
                     <Route className="h-4 w-4 mr-2" />
                     Calcular Ruta Óptima
                   </>
+                )}
+              </Button>
+
+              <Button
+                onClick={calculateFastestRoute}
+                disabled={isCalculating || !points[0].address || !points[points.length - 1].address}
+                variant="secondary"
+                className="w-full"
+                title="Selecciona la ruta más rápida considerando alternativas (y tráfico en Auto)"
+              >
+                {isCalculating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                    Calculando...
+                  </>
+                ) : (
+                  <>Calcular Ruta Más Rápida</>
                 )}
               </Button>
             </CardContent>
