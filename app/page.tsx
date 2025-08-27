@@ -415,10 +415,6 @@ export default function RouteOptimizerApp() {
                     <Footprints className="h-4 w-4" /> A pie
                   </Button>
                 </div>
-                <div className="flex-1" />
-                <Button variant="outline" size="sm" onClick={handleMyLocation} title="Centrar en mi ubicación" className="gap-2">
-                  <LocateFixed className="h-4 w-4" /> Mi ubicación
-                </Button>
               </div>
 
               {points.map((point, index) => (
