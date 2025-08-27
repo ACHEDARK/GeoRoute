@@ -315,6 +315,99 @@ export default function RouteOptimizerApp() {
     })
   }
 
+  const calculateFastestRoute = async () => {
+    if (!directionsServiceRef.current || !directionsRendererRef.current) {
+      alert("Google Maps no está cargado correctamente")
+      return
+    }
+
+    setIsCalculating(true)
+
+    const origin = points.find((p) => p.type === "origin")
+    const destination = points.find((p) => p.type === "destination")
+
+    const waypoints = points
+      .filter((p) => p.type === "waypoint" && (p.address.trim() !== "" || p.coordinates))
+      .map((p) => ({
+        location: p.coordinates || p.address,
+        stopover: true,
+      }))
+
+    if (
+      !origin ||
+      !destination ||
+      (!origin.address && !origin.coordinates) ||
+      (!destination.address && !destination.coordinates)
+    ) {
+      alert("Por favor selecciona el origen y destino")
+      setIsCalculating(false)
+      return
+    }
+
+    const request: any = {
+      origin: origin.coordinates || origin.address,
+      destination: destination.coordinates || destination.address,
+      travelMode: window.google.maps.TravelMode[travelMode],
+      waypoints,
+      optimizeWaypoints: true,
+      provideRouteAlternatives: true,
+    }
+
+    // Para Auto, usar tráfico en tiempo real
+    if (travelMode === "DRIVING") {
+      request.drivingOptions = {
+        departureTime: new Date(),
+        trafficModel: window.google.maps.TrafficModel?.BEST_GUESS || "bestguess",
+      }
+    }
+
+    directionsServiceRef.current.route(request, (result: any, status: string) => {
+      setIsCalculating(false)
+
+      if (status === "OK") {
+        // Aviso si no hay alternativas
+        if (!result.routes || result.routes.length <= 1) {
+          alert("Solo hay una ruta disponible para este trayecto.")
+        }
+        // Seleccionar la ruta con menor duración (considerando tráfico si aplica)
+        let bestIndex = 0
+        let bestMinutes = Infinity
+        result.routes.forEach((r: any, idx: number) => {
+          const minutes = r.legs.reduce((total: number, leg: any) => {
+            const v = travelMode === "DRIVING" && leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value
+            return total + v
+          }, 0) / 60
+          if (minutes < bestMinutes) {
+            bestMinutes = minutes
+            bestIndex = idx
+          }
+        })
+
+        directionsRendererRef.current.setDirections(result)
+        if (typeof directionsRendererRef.current.setRouteIndex === "function") {
+          directionsRendererRef.current.setRouteIndex(bestIndex)
+        }
+
+        markers.forEach((m) => m.marker.setMap(null))
+        setMarkers([])
+
+        const route = result.routes[bestIndex]
+        setRouteInfo({
+          distance: route.legs.reduce((total: number, leg: any) => total + leg.distance.value, 0) / 1000 + " km",
+          duration: Math.ceil(
+            route.legs.reduce((total: number, leg: any) => {
+              const v = travelMode === "DRIVING" && leg.duration_in_traffic ? leg.duration_in_traffic.value : leg.duration.value
+              return total + v
+            }, 0) / 60
+          ) + " min",
+          traffic: "moderate",
+        })
+      } else {
+        alert("No se pudo obtener la ruta: " + status)
+      }
+    })
+  }
+
   const getPointIcon = (type: string) => {
     switch (type) {
       case "origin":
@@ -550,6 +643,23 @@ export default function RouteOptimizerApp() {
                     <Route className="h-4 w-4 mr-2" />
                     Calcular Ruta Óptima
                   </>
+                )}
+              </Button>
+
+              <Button
+                onClick={calculateFastestRoute}
+                disabled={isCalculating || !points[0].address || !points[points.length - 1].address}
+                variant="secondary"
+                className="w-full"
+                title="Selecciona la ruta más rápida considerando alternativas (y tráfico en Auto)"
+              >
+                {isCalculating ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2" />
+                    Calculando...
+                  </>
+                ) : (
+                  <>Calcular Ruta Más Rápida</>
                 )}
               </Button>
             </CardContent>
